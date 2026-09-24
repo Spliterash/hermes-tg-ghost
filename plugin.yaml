@@ -26,27 +26,43 @@ provides_tools:
   - ghost_media
   - ghost_reset
 config_schema:
-  toolsets:
-    type: list
-    default: ["tg-ghost", "web", "vision", "session_search", "code_execution"]
-    description: "Toolsets of guest turns. They read untrusted chat content: terminal, file, browser, cronjob, delegation, skills and memory are left out on purpose."
-  placeholder_text:
-    type: str
-    default: "⏳ Думаю..."
-    description: "Placeholder shown while the answer is being generated."
+  api_id:
+    type: secret
+    env: TELEGRAM_USERBOT_API_ID
+    label: "Userbot api_id"
+    description: "MTProto api_id аккаунта юзербота (https://my.telegram.org). Гейтвей подхватит после перезапуска."
+  api_hash:
+    type: secret
+    env: TELEGRAM_USERBOT_API_HASH
+    label: "Userbot api_hash"
+    description: "MTProto api_hash аккаунта юзербота. Гейтвей подхватит после перезапуска."
   userbot_enabled:
     type: bool
     default: true
-    description: "Attach a chat history window fetched by the Telethon userbot to each guest query."
-  session_ttl_minutes:
-    type: int
-    default: 20
-    description: "Idle minutes after which a guest chat starts a new session (0 disables)."
+    label: "Окно истории через юзербота"
+    description: "Прикладывать к каждому запросу сообщения чата, прочитанные юзерботом."
   initial_history_window:
     type: int
     default: 10
-    description: "Messages in the initial window around the target message."
+    label: "Размер окна истории"
+    description: "Сколько сообщений вокруг целевого прикладывать к запросу."
   max_history_limit:
     type: int
     default: 200
-    description: "Messages the agent may page in with ghost_history per session."
+    label: "Бюджет истории на сессию"
+    description: "Сколько сообщений агент может догрузить через ghost_history и ghost_messages за одну сессию."
+  session_ttl_minutes:
+    type: int
+    default: 20
+    label: "TTL сессии, минут"
+    description: "После стольких минут тишины в чате следующий запрос начинает новую сессию (0 — никогда)."
+  placeholder_text:
+    type: str
+    default: "⏳ Думаю..."
+    label: "Текст заглушки"
+    description: "Показывается, пока готовится ответ."
+  toolsets:
+    type: list
+    default: []
+    label: "Фильтр инструментов"
+    description: "Пусто — те же инструменты, что в личке с ботом. Список тулсетов (например [tg-ghost, web, vision]) — только они, остальное блокируется."

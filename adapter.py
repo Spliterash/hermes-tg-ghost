@@ -39,9 +39,14 @@ HISTORY_WATERMARK_KEY = "ghost_history_watermark"
 RESET_REQUESTED_KEY = "ghost_reset_requested"
 _STOP_WORDS = frozenset({"стоп", "stop"})
 _CHAT_TYPES = {"private": "dm", "group": "group", "supergroup": "group", "channel": "channel"}
-# Chat content is untrusted, so no terminal, file, browser (logged-in sessions), cron, delegation,
-# memory or skill writes by default.
-DEFAULT_TOOLSETS = ("tg-ghost", "web", "vision", "session_search", "code_execution")
+
+
+def toolsets_filter(value: Any) -> List[str]:
+    """The ``toolsets`` setting as a list; empty means guest turns are not filtered."""
+    if isinstance(value, str):
+        value = value.split(",")
+    return [str(t).strip() for t in value or () if str(t).strip()]
+
 
 PLATFORM_HINT = (
     "You are answering in Telegram Guest Mode: your owner mentioned you in a chat you are not a member "
@@ -144,10 +149,12 @@ class PlaceholderBook:
 class GhostAdapter(BasePlatformAdapter):
     MAX_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH
 
-    def __init__(self, config: PlatformConfig, settings: Callable[[str, Any], Any], userbot: ub.Userbot):
+    def __init__(self, config: PlatformConfig, settings: Callable[[str, Any], Any], userbot: ub.Userbot,
+                 report: Callable[[dict], None] = lambda _status: None):
         super().__init__(config=config, platform=Platform(PLATFORM))
         self._settings = settings
         self._userbot = userbot
+        self._report = report
         self._book = PlaceholderBook()
         # Events whose replies are swallowed (the TTL ``/new``) and the chats they are running in.
         self._silent_ids: set[str] = set()
@@ -162,6 +169,7 @@ class GhostAdapter(BasePlatformAdapter):
         self._mark_connected()
         self._silence_home_channel_nudge()
         self._force_hide_reasoning()
+        self._report({"state": "connected", "at": int(time.time())})
         logger.info("[%s] Ready; guest queries arrive through the Telegram adapter", self.name)
         return True
 
@@ -194,6 +202,7 @@ class GhostAdapter(BasePlatformAdapter):
         if _live.get(profile) is self:
             _live.pop(profile, None)
         self._mark_disconnected()
+        self._report({"state": "disconnected", "at": int(time.time())})
 
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
         return {"name": chat_id, "type": "group"}
@@ -202,14 +211,14 @@ class GhostAdapter(BasePlatformAdapter):
     def session_store(self) -> Any:
         return getattr(self, "_session_store", None)
 
-    def toolsets(self) -> List[str]:
-        value = self._settings("toolsets", None)
-        if isinstance(value, str):
-            value = value.split(",")
-        return [str(t).strip() for t in value if str(t).strip()] if value is not None else list(DEFAULT_TOOLSETS)
-
     def toolsets_for_source(self, source: Any) -> Optional[List[str]]:
-        return self.toolsets()
+        # Unfiltered, guest turns get exactly the owner's Telegram DM tools (platform_toolsets.telegram,
+        # MCP servers, plugin toolsets) instead of the generic hermes-telegram_ghost default.
+        if restricted := toolsets_filter(self._settings("toolsets", None)):
+            return restricted
+        from gateway.run import _load_gateway_config
+        from hermes_cli.tools_config import _get_platform_tools
+        return sorted(_get_platform_tools(_load_gateway_config(), "telegram"))
 
     # -- inbound --------------------------------------------------------------------------------
 

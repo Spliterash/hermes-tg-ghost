@@ -13,13 +13,16 @@ from tools.registry import no_cache_check_fn, tool_error, tool_result
 
 from . import safety
 from . import userbot as ub
-from .adapter import DEFAULT_TOOLSETS, PLATFORM, RESET_REQUESTED_KEY, live_adapter
+from .adapter import PLATFORM, RESET_REQUESTED_KEY, live_adapter, toolsets_filter
 
 logger = logging.getLogger(__name__)
 
 TOOLSET = "tg-ghost"
 HISTORY_COUNTER_KEY = "ghost_history_fetched"
 MAX_FULL_MESSAGES = 10
+# Hermes' deferred-tool bridge: they only read schemas and belong to no toolset. Their sibling
+# tool_call needs no entry, Hermes unwraps it to the target tool before pre_tool_call runs.
+_SCHEMA_LOOKUP_TOOLS = frozenset({"tool_search", "tool_describe"})
 
 
 def _session(name: str) -> str:
@@ -89,19 +92,18 @@ class GhostTools:
         self._ctx.register_hook("pre_tool_call", self.guard)
 
     def guard(self, tool_name: str = "", **_: Any) -> Optional[dict]:
-        """pre_tool_call hook, the actual tool boundary of guest turns.
+        """pre_tool_call hook: with the ``toolsets`` filter set, the actual tool boundary of guest turns.
 
         ``toolsets_for_source`` only shapes the tool list: Hermes still adds other plugins' toolsets
         and default MCP servers to it. Errors block, since a failing hook would let the call through.
         """
-        if not in_ghost_session():
+        if not in_ghost_session() or tool_name in _SCHEMA_LOOKUP_TOOLS:
             return None
         try:
             from toolsets import resolve_toolset
 
-            adapter = live_adapter(_session("PROFILE") or None)
-            names = adapter.toolsets() if adapter else DEFAULT_TOOLSETS
-            if any(tool_name in resolve_toolset(name) for name in names):
+            names = toolsets_filter(self._ctx.get_config("toolsets", None))
+            if not names or any(tool_name in resolve_toolset(name) for name in names):
                 return None
         except Exception:
             logger.exception("[tg-ghost] Tool guard failed for %s", tool_name)

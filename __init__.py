@@ -73,7 +73,8 @@ def register(ctx: Any) -> None:
 
     ctx.register_platform(
         name=PLATFORM, label="Telegram Ghost",
-        adapter_factory=lambda config: GhostAdapter(config, ctx.get_config, userbot),
+        adapter_factory=lambda config: GhostAdapter(
+            config, ctx.get_config, userbot, report=lambda status: state.set("platform", status)),
         check_fn=_ptb_available,
         is_connected=lambda _config: bool(_bot_token()),
         env_enablement_fn=lambda: {"ghost": True} if _bot_token() else None,
