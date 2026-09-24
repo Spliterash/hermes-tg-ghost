@@ -161,8 +161,22 @@ class GhostAdapter(BasePlatformAdapter):
         _live[self._owner_transport_profile()] = self
         self._mark_connected()
         self._silence_home_channel_nudge()
+        self._force_hide_reasoning()
         logger.info("[%s] Ready; guest queries arrive through the Telegram adapter", self.name)
         return True
+
+    def _force_hide_reasoning(self) -> None:
+        """A guest reply is one message visible to a whole chat that isn't even the bot's own:
+        the reasoning scratch-text block must never show here, even when the operator turned it
+        on globally (``display.show_reasoning``) for their own CLI/other platforms — a per-platform
+        override wins over that global setting, so pin it once."""
+        from hermes_cli.config import load_config, save_config
+        cfg = load_config() or {}
+        ghost_display = cfg.setdefault("display", {}).setdefault("platforms", {}).setdefault(PLATFORM, {})
+        if "show_reasoning" in ghost_display:
+            return
+        ghost_display["show_reasoning"] = False
+        save_config(cfg)
 
     def _silence_home_channel_nudge(self) -> None:
         """Guest turns have no chat of their own to deliver cron/cross-platform messages to, so a
