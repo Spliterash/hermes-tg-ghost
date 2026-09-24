@@ -13,7 +13,7 @@ from tools.registry import no_cache_check_fn, tool_error, tool_result
 
 from . import safety
 from . import userbot as ub
-from .adapter import DEFAULT_TOOLSETS, PLATFORM, live_adapter
+from .adapter import DEFAULT_TOOLSETS, PLATFORM, RESET_REQUESTED_KEY, live_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,7 @@ class GhostTools:
             ("ghost_history", HISTORY_SCHEMA, self.get_history, "📜"),
             ("ghost_messages", MESSAGES_SCHEMA, self.get_messages, "📄"),
             ("ghost_media", MEDIA_SCHEMA, self.media, "🎬"),
+            ("ghost_reset", RESET_SCHEMA, self.reset, "🔄"),
         ):
             self._ctx.register_tool(
                 name=name, toolset=TOOLSET, schema={"name": name, **schema}, handler=_guarded(handler),
@@ -175,6 +176,16 @@ class GhostTools:
             data["flags"] = flags
         return safety.wrap("ghost_media", tool_result(data))
 
+    def reset(self, args: dict, **_: Any) -> str:
+        """Flag the session for reset. A tool call runs inside the session's own turn, so it
+        cannot safely ``/new`` it mid-flight; the flag is consumed before the next message."""
+        adapter = live_adapter(_session("PROFILE") or None)
+        store = adapter.session_store if adapter else None
+        if store is None:
+            raise ub.UserbotError("Сброс сейчас недоступен.")
+        store.set_session_metadata(_session("KEY"), RESET_REQUESTED_KEY, True)
+        return tool_result(status="scheduled", note="Сессия будет сброшена перед следующим сообщением в этом чате.")
+
 
 HISTORY_SCHEMA = {
     "description": "Fetch older ('before') or newer ('after') messages of the current Telegram chat "
@@ -214,4 +225,11 @@ MEDIA_SCHEMA = {
         },
         "required": ["message_id"],
     },
+}
+
+RESET_SCHEMA = {
+    "description": "Reset this guest session's context on an explicit request to start over or forget "
+                   "what was discussed ('забудь', 'начни заново', 'сбрось контекст'). Takes effect "
+                   "before the next message in this chat, not this one.",
+    "parameters": {"type": "object", "properties": {}},
 }

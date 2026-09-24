@@ -35,6 +35,9 @@ PROGRESS_STEPS = (
     (30.0, "⏳ Почти готово…"),
 )
 PLACEHOLDER_TTL_SECONDS = 3600
+HISTORY_WATERMARK_KEY = "ghost_history_watermark"
+RESET_REQUESTED_KEY = "ghost_reset_requested"
+_STOP_WORDS = frozenset({"стоп", "stop"})
 _CHAT_TYPES = {"private": "dm", "group": "group", "supergroup": "group", "channel": "channel"}
 # Chat content is untrusted, so no terminal, file, browser (logged-in sessions), cron, delegation,
 # memory or skill writes by default.
@@ -230,18 +233,24 @@ class GhostAdapter(BasePlatformAdapter):
 
     async def _dispatch(self, msg: Any, source: Any, inline_id: str) -> None:
         try:
-            await self._expire_idle_session(source)
+            text = self._query_text(msg)
+            if text.lower() in _STOP_WORDS:
+                await self._reset_session(source)
+                self._book.finish(source.chat_id, inline_id)
+                await self._edit(inline_id, "🔄 Сессия сброшена.", markdown=False)
+                return
+            await self._maybe_reset_session(source)
             reply = msg.reply_to_message
             reply_author = reply.from_user if reply else None
             # reply_to_text stays unset: the gateway would quote it raw, the target is in channel_context.
             event = MessageEvent(
-                text=self._query_text(msg) or "Прокомментируй сообщение, на которое ответил пользователь.",
+                text=text or "Прокомментируй сообщение, на которое ответил пользователь.",
                 source=source, raw_message=msg, message_id=inline_id, timestamp=msg.date,
                 user_id=source.user_id, user_name=source.user_name,
                 reply_to_message_id=str(reply.message_id) if reply else None,
                 reply_to_author_id=str(reply_author.id) if reply_author else None,
                 reply_to_author_name=reply_author.full_name if reply_author else None,
-                channel_context=await self._chat_context(msg, source.user_id),
+                channel_context=await self._chat_context(msg, source),
             )
             await self.handle_message(event)
             if not event._gateway_accepted:
@@ -260,11 +269,12 @@ class GhostAdapter(BasePlatformAdapter):
             text = re.sub(rf"(?i)@{re.escape(username)}\b[,:]?", "", text)
         return text.strip()
 
-    async def _chat_context(self, msg: Any, caller_id: str) -> Optional[str]:
-        records = await self._history_window(msg, caller_id)
+    async def _chat_context(self, msg: Any, source: Any) -> Optional[str]:
+        records = await self._history_window(msg, source.user_id)
         reply = msg.reply_to_message
         if reply is not None and not any(r.get("target") for r in records):
-            records = sorted([*records, _reply_record(reply, caller_id)], key=lambda r: r["id"])
+            records = sorted([*records, _reply_record(reply, source.user_id)], key=lambda r: r["id"])
+        records = self._drop_seen(source, records)
         return safety.chat_block(records) if records else None
 
     async def _history_window(self, msg: Any, caller_id: str) -> List[Dict[str, Any]]:
@@ -280,25 +290,46 @@ class GhostAdapter(BasePlatformAdapter):
             logger.warning("[%s] History window unavailable: %s", self.name, exc)
             return []
 
-    async def _expire_idle_session(self, source: Any) -> None:
-        """The gateway keeps sessions forever; guest chats restart after ``session_ttl_minutes`` idle.
-
-        Expiry goes through a real ``/new`` so the runner performs its full reset (agent cache,
-        conversation-scoped state, hooks); its banner is swallowed.
-        """
-        ttl = int(self._setting("session_ttl_minutes", 20) or 0)
+    def _drop_seen(self, source: Any, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """A message already delivered in an earlier turn of this (TTL-alive) session is already
+        in the agent's own transcript; re-sending it in ``channel_context`` every follow-up turn
+        duplicates it. Message ids are monotonic per chat, so a simple high-water mark dedupes
+        without tracking individual ids."""
         store = self.session_store
-        if ttl <= 0 or store is None:
+        if store is None or not records:
+            return records
+        key = self._source_session_key(source)
+        watermark = int(store.get_session_metadata(key, HISTORY_WATERMARK_KEY, 0) or 0)
+        store.set_session_metadata(key, HISTORY_WATERMARK_KEY, max(watermark, *(r["id"] for r in records)))
+        return [r for r in records if r["id"] > watermark]
+
+    async def _maybe_reset_session(self, source: Any) -> None:
+        """Reset before this turn when idle past ``session_ttl_minutes``, or when ``ghost_reset``
+        flagged it on a previous turn (a tool call can't safely ``/new`` the session it's running
+        inside, so it just asks for a reset before the next one)."""
+        store = self.session_store
+        if store is None:
             return
         key = self._source_session_key(source)
         entry = store.lookup_by_session_key(key)
         if entry is None or key in self._active_sessions:
             return
-        if datetime.now() - entry.updated_at < timedelta(minutes=ttl):
+        ttl = int(self._setting("session_ttl_minutes", 20) or 0)
+        idle = ttl > 0 and datetime.now() - entry.updated_at >= timedelta(minutes=ttl)
+        requested = bool(store.get_session_metadata(key, RESET_REQUESTED_KEY, False))
+        if not (idle or requested):
             return
-        reset_id = f"ttl-{uuid.uuid4().hex}"
+        if requested:
+            store.set_session_metadata(key, RESET_REQUESTED_KEY, False)
+        logger.info("[%s] Resetting session %s (%s)", self.name, key, "idle" if idle else "requested")
+        await self._reset_session(source, key)
+
+    async def _reset_session(self, source: Any, key: Optional[str] = None) -> None:
+        """A real ``/new`` so the runner performs its full reset (agent cache, conversation-scoped
+        state, hooks); its banner is swallowed."""
+        key = key or self._source_session_key(source)
+        reset_id = f"reset-{uuid.uuid4().hex}"
         self._silent_ids.add(reset_id)
-        logger.info("[%s] Session %s idle for over %d min, starting a new one", self.name, key, ttl)
         await self.handle_message(MessageEvent(
             text="/new", message_type=MessageType.COMMAND, source=source, message_id=reset_id))
         task = self._session_tasks.get(key)

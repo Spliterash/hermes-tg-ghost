@@ -24,6 +24,7 @@ provides_tools:
   - ghost_history
   - ghost_messages
   - ghost_media
+  - ghost_reset
 config_schema:
   toolsets:
     type: list
