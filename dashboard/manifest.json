@@ -1,0 +1,13 @@
+{
+  "name": "tg-ghost",
+  "label": "Telegram Ghost",
+  "description": "Telegram Ghost: userbot state and recent ghost sessions.",
+  "icon": "Send",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/tg-ghost",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

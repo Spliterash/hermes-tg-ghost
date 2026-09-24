@@ -1,0 +1,51 @@
+name: tg-ghost
+version: 1.0.0
+description: "Telegram Bot API 10.0 Guest Chat Mode for Hermes Agent: a telegram_ghost gateway platform that answers guest queries through an inline message, with Telethon userbot history windowing, pagination and media tools, untrusted-content isolation."
+author: "NousResearch / Community"
+kind: standalone
+requires_hermes: ">=0.21"
+python_dependencies:
+  - "telethon>=1.36"
+tags:
+  - telegram
+  - guest-mode
+  - bot-api
+  - userbot
+requires_env:
+  - name: TELEGRAM_USERBOT_API_ID
+    description: "MTProto api_id of the userbot account (https://my.telegram.org)"
+    prompt: "Userbot api_id"
+    password: false
+  - name: TELEGRAM_USERBOT_API_HASH
+    description: "MTProto api_hash of the userbot account"
+    prompt: "Userbot api_hash"
+    password: true
+provides_tools:
+  - ghost_history
+  - ghost_messages
+  - ghost_media
+config_schema:
+  toolsets:
+    type: list
+    default: ["tg-ghost", "web", "vision", "session_search", "code_execution"]
+    description: "Toolsets of guest turns. They read untrusted chat content: terminal, file, browser, cronjob, delegation, skills and memory are left out on purpose."
+  placeholder_text:
+    type: str
+    default: "⏳ Думаю..."
+    description: "Placeholder shown while the answer is being generated."
+  userbot_enabled:
+    type: bool
+    default: true
+    description: "Attach a chat history window fetched by the Telethon userbot to each guest query."
+  session_ttl_minutes:
+    type: int
+    default: 20
+    description: "Idle minutes after which a guest chat starts a new session (0 disables)."
+  initial_history_window:
+    type: int
+    default: 10
+    description: "Messages in the initial window around the target message."
+  max_history_limit:
+    type: int
+    default: 200
+    description: "Messages the agent may page in with ghost_history per session."

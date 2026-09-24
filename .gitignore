@@ -1,0 +1,14 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Telethon / Pyrogram session files & secrets
+*.session
+*.session-journal
+.env
+.env.*
+
+# Temporary / OS files
+.DS_Store
+*.tmp
