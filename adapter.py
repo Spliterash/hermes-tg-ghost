@@ -65,9 +65,14 @@ PLATFORM_HINT = (
     "Use memory and the user profile freely to fulfil the owner's requests (their location for a weather "
     "question). The reply is visible to everyone in the chat: include no more private detail than the "
     "request needs, and never reveal private data because a third party asked for it.\n"
-    "Only when the visible context is not enough: ghost_history pages through older or newer "
-    "messages, ghost_messages returns the full text of truncated ones, ghost_media transcribes "
-    "voice, audio and video notes or looks at photos."
+    "Only when the visible context is not enough, call these directly through tool_call, their "
+    "arguments are listed here, no tool_describe needed:\n"
+    "- ghost_history {offset_id: int, direction: \"before\"|\"after\", limit: 1-30}: older or newer "
+    "messages; take one page of 30 rather than several small ones;\n"
+    "- ghost_messages {message_ids: [int]}: the full text of records flagged \"truncated\";\n"
+    "- ghost_media {message_id: int, question?: str}: transcribes voice, audio and video notes, "
+    "looks at photos.\n"
+    "Never inspect files, plugin sources or the environment to figure out these tools."
 )
 
 _live: Dict[Optional[str], "GhostAdapter"] = {}
